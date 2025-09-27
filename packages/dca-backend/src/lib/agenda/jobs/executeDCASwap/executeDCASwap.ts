@@ -38,8 +38,13 @@ const { BASE_RPC_URL, VINCENT_APP_ID } = env;
 
 const BASE_CHAIN_ID = 8453;
 const BASE_USDC_ADDRESS = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
-const BASE_WBTC_ADDRESS = '0x0555E30da8f98308EdB960aa94C0Db47230d2B9c';
 const BASE_UNISWAP_V3_ROUTER = '0x2626664c2603336E57B271c5C0b26F421741e481';
+
+const UNDERVALUED_TOKENS = [
+  '0xf757c9804cF2EE8d8Ed64e0A8936293Fe43a7252',
+  '0xA99F6e6785Da0F5d6fB42495Fe424BCE029Eeb3E',
+  '0xc55E93C62874D8100dBd2DfE307EDc1036ad5434',
+];
 
 const baseProvider = new ethers.providers.StaticJsonRpcProvider(BASE_RPC_URL);
 const usdcContract = getERC20Contract(BASE_USDC_ADDRESS, baseProvider);
@@ -219,32 +224,41 @@ export async function executeDCASwap(job: JobType, sentryScope: Sentry.Scope): P
       });
     }
 
+    const tokenOutAddress = UNDERVALUED_TOKENS[
+      Math.floor(Math.random() * UNDERVALUED_TOKENS.length)
+    ] as `0x${string}`;
+    const tokenOutContract = getERC20Contract(tokenOutAddress, baseProvider);
+    const tokenSymbol = (await tokenOutContract.symbol()) as string;
+
     const swapHash = await handleSwapExecution({
       delegatorAddress: ethAddress as `0x${string}`,
       tokenInAddress: BASE_USDC_ADDRESS,
       tokenInAmount: _purchaseAmount,
       tokenInDecimals: 6,
-      tokenOutAddress: BASE_WBTC_ADDRESS,
+      tokenOutAddress,
     });
     sentryScope.addBreadcrumb({
       data: {
         swapHash,
+        tokenOutAddress,
+        tokenSymbol,
       },
     });
 
     // Create a purchase record with all required fields
     const purchase = new PurchasedCoin({
       ethAddress,
-      coinAddress: BASE_WBTC_ADDRESS,
-      name: 'wBTC',
+      coinAddress: tokenOutAddress,
       purchaseAmount: purchaseAmount.toFixed(2),
       scheduleId: _id,
-      symbol: 'wBTC',
+      symbol: tokenSymbol,
       txHash: swapHash,
     });
     await purchase.save();
 
-    consola.debug(`Successfully purchased ${purchaseAmount} USDC of wBTC at tx hash ${swapHash}`);
+    consola.debug(
+      `Successfully purchased ${purchaseAmount} USDC of ${tokenSymbol} at tx hash ${swapHash}`
+    );
   } catch (e) {
     // Catch-and-rethrow is usually an antipattern, but Agenda doesn't log failed job reasons to console
     // so this is our chance to log the job failure details using Consola before we throw the error
